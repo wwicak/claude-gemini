@@ -43,7 +43,7 @@ export async function sync(query: string, options: SyncOptions) {
     const result = await runGeminiWithTimeout(
       geminiPath,
       convertedQuery,
-      options.model || config.model || 'gemini-2.5-pro',
+      options.model || config.model || 'gemini-2.5-pro-latest',
       timeout,
       (elapsed: number) => {
         if (elapsed === -1) {
@@ -70,9 +70,21 @@ export async function sync(query: string, options: SyncOptions) {
       // For non-formatted output, just print the result
       console.log(result);
     }
-  } catch (error) {
+  } catch (error: any) {
     spinner.fail(chalk.red('Analysis failed'));
-    console.error(chalk.red(`Error: ${error}`));
+    
+    // Check for quota errors
+    if (error.toString().includes('429') || error.toString().includes('Quota exceeded')) {
+      console.error(chalk.yellow('\n⚠️  Gemini quota exceeded. Options:'));
+      console.error(chalk.cyan('1. Wait for daily quota reset'));
+      console.error(chalk.cyan('2. Use gemini directly (it auto-switches to gemini-2.5-flash):'));
+      console.error(chalk.gray(`   gemini -p "${query}"`));
+      console.error(chalk.cyan('3. Set up a Gemini API key:'));
+      console.error(chalk.gray('   https://goo.gle/gemini-cli-docs-auth#gemini-api-key'));
+    } else {
+      console.error(chalk.red(`Error: ${error}`));
+    }
+    
     process.exit(1);
   }
 }
@@ -139,10 +151,20 @@ function runGeminiWithTimeout(
     gemini.stderr.on('data', (data) => {
       const errorData = data.toString();
       error += errorData;
+      
       // Gemini might output some info to stderr that's not errors
       if (errorData.includes('[dotenv@')) {
         // This is just dotenv info, not an error
         return;
+      }
+      
+      // Stream stderr info that might be useful (like model switching)
+      if (options.format !== false && (
+        errorData.includes('Slow response times detected') ||
+        errorData.includes('switching from') ||
+        errorData.includes('gemini-2.5-flash')
+      )) {
+        console.log(chalk.yellow('\n' + errorData.trim() + '\n'));
       }
     });
 

@@ -183,6 +183,22 @@ which gemini
 source ~/.nvm/nvm.sh
 ```
 
+### Quota exceeded (429 error)
+When you hit Gemini Pro quota limits:
+
+1. **Use gemini CLI directly** (it auto-switches to flash model):
+   ```bash
+   gemini -p "@src/ Find all API endpoints"
+   ```
+
+2. **Set up a Gemini API key** for higher quotas:
+   ```bash
+   # Get key from: https://makersuite.google.com/app/apikey
+   export GEMINI_API_KEY=your-key-here
+   ```
+
+3. **Wait for quota reset** (usually daily)
+
 ### Timeout issues
 ```bash
 # Increase timeout for large codebases
