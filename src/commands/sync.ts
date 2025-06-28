@@ -40,7 +40,7 @@ export async function sync(query: string, options: SyncOptions) {
   }).start();
 
   const startTime = Date.now();
-  const timeout = parseInt(options.timeout || config.timeout || '300') * 1000;
+  const timeout = parseInt(options.timeout || config.timeout.toString() || '300') * 1000;
 
   try {
     const result = await runGeminiWithTimeout(

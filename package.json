@@ -11,7 +11,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build",
-    "postinstall": "node dist/setup.js"
+    "postinstall": "node -e \"try { require('./dist/setup.js') } catch(e) { console.log('Skipping setup (development mode)') }\""
   },
   "keywords": ["claude", "gemini", "ai", "codebase-analysis", "cli"],
   "author": "wwicak",

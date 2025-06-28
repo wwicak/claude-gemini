@@ -41,7 +41,8 @@ export async function loadConfig(): Promise<Config> {
   }
 
   // Merge configs (later ones override earlier ones)
-  return configs.reduce((merged, config) => ({ ...merged, ...config }), DEFAULT_CONFIG);
+  const merged = configs.reduce((acc, config) => ({ ...acc, ...config }), {} as Partial<Config>);
+  return { ...DEFAULT_CONFIG, ...merged };
 }
 
 export async function saveConfig(config: Partial<Config>, global = false): Promise<void> {
