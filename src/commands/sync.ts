@@ -43,7 +43,7 @@ export async function sync(query: string, options: SyncOptions) {
     const result = await runGeminiWithTimeout(
       geminiPath,
       convertedQuery,
-      options.model || config.model || 'gemini-2.5-pro-latest',
+      options.model || config.model || 'gemini-2.5-flash',
       timeout,
       (elapsed: number) => {
         if (elapsed === -1) {
