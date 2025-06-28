@@ -1,6 +1,6 @@
 {
   "name": "claude-gemini",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "Global CLI tool for Claude-Gemini integration across projects",
   "main": "dist/index.js",
   "bin": {
@@ -13,7 +13,13 @@
     "prepublishOnly": "npm run build",
     "postinstall": "node -e \"try { require('./dist/setup.js') } catch(e) { console.log('Skipping setup (development mode)') }\""
   },
-  "keywords": ["claude", "gemini", "ai", "codebase-analysis", "cli"],
+  "keywords": [
+    "claude",
+    "gemini",
+    "ai",
+    "codebase-analysis",
+    "cli"
+  ],
   "author": "wwicak",
   "license": "MIT",
   "repository": {

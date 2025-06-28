@@ -26,17 +26,14 @@ export async function sync(query: string, options: SyncOptions) {
   // Show Claude instructions
   if (options.format !== false) {
     console.log(chalk.yellow('\n# IMPORTANT: Gemini Analysis in Progress\n'));
-    console.log('I am currently running a Gemini analysis for you. This may take 1-5 minutes.\n');
-    console.log(chalk.bold('DO NOT PROCEED') + ' with alternative approaches.\n');
-    console.log('Status indicators:');
-    console.log('- 🔄 Analysis in progress...');
-    console.log('- ✅ Analysis complete (results below)');
-    console.log('- ❌ Analysis failed (fallback to limited analysis)\n');
+    console.log('Streaming results from Gemini in real-time. Please wait for completion.\n');
+    console.log(chalk.cyan('═'.repeat(80)));
   }
 
   const spinner = ora({
-    text: 'Starting Gemini analysis...',
-    spinner: 'dots'
+    text: 'Connecting to Gemini...',
+    spinner: 'dots',
+    isEnabled: options.format !== false
   }).start();
 
   const startTime = Date.now();
@@ -49,16 +46,28 @@ export async function sync(query: string, options: SyncOptions) {
       options.model || config.model || 'gemini-2.5-pro',
       timeout,
       (elapsed: number) => {
-        const progress = Math.floor((elapsed / timeout) * 100);
-        spinner.text = `Analysis in progress... ${progress}% (${Math.floor(elapsed / 1000)}s/${timeout / 1000}s)`;
-      }
+        if (elapsed === -1) {
+          // Clear spinner when streaming starts
+          spinner.stop();
+          spinner.clear();
+          if (options.format !== false) {
+            console.log(chalk.green('\n▶ Streaming Gemini response:\n'));
+          }
+        } else {
+          const progress = Math.floor((elapsed / timeout) * 100);
+          spinner.text = `Waiting for Gemini... ${progress}% (${Math.floor(elapsed / 1000)}s/${timeout / 1000}s)`;
+        }
+      },
+      options
     );
 
-    spinner.succeed(chalk.green('Analysis complete!'));
-    
     if (options.format !== false) {
-      console.log(formatForClaude(result));
+      // Don't show spinner success if we were streaming
+      console.log(chalk.cyan('\n' + '═'.repeat(80)));
+      console.log(chalk.green('\n✅ Analysis complete!\n'));
+      console.log(chalk.yellow('Results have been streamed above. I can now see and use them.'));
     } else {
+      // For non-formatted output, just print the result
       console.log(result);
     }
   } catch (error) {
@@ -73,7 +82,8 @@ function runGeminiWithTimeout(
   query: string,
   model: string,
   timeout: number,
-  onProgress: (elapsed: number) => void
+  onProgress: (elapsed: number) => void,
+  options: { format?: boolean }
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     // Add -y flag to accept all actions automatically (non-interactive)
@@ -90,12 +100,15 @@ function runGeminiWithTimeout(
     let output = '';
     let error = '';
     let progressInterval: NodeJS.Timeout;
+    let hasStartedStreaming = false;
 
     const startTime = Date.now();
     
     progressInterval = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      onProgress(elapsed);
+      if (!hasStartedStreaming) {
+        const elapsed = Date.now() - startTime;
+        onProgress(elapsed);
+      }
     }, 2000);
 
     const timeoutHandle = setTimeout(() => {
@@ -105,7 +118,22 @@ function runGeminiWithTimeout(
     }, timeout);
 
     gemini.stdout.on('data', (data) => {
-      output += data.toString();
+      const chunk = data.toString();
+      output += chunk;
+      
+      // First data received - clear spinner and start streaming
+      if (!hasStartedStreaming) {
+        hasStartedStreaming = true;
+        clearInterval(progressInterval);
+        onProgress(-1); // Signal to clear spinner
+      }
+      
+      // Stream output in real-time so Claude sees progress
+      if (options.format !== false) {
+        // Remove ANSI color codes for cleaner output
+        const cleanChunk = chunk.replace(/\x1b\[[0-9;]*m/g, '');
+        process.stdout.write(cleanChunk);
+      }
     });
 
     gemini.stderr.on('data', (data) => {
