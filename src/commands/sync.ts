@@ -43,7 +43,7 @@ export async function sync(query: string, options: SyncOptions) {
     const result = await runGeminiWithTimeout(
       geminiPath,
       convertedQuery,
-      options.model || config.model || 'gemini-2.5-flash',
+      options.model || config.model || '',
       timeout,
       (elapsed: number) => {
         if (elapsed === -1) {
@@ -72,45 +72,14 @@ export async function sync(query: string, options: SyncOptions) {
     }
   } catch (error: any) {
     spinner.fail(chalk.red('Analysis failed'));
+    console.error(chalk.red(`Error: ${error}`));
     
-    // Check for quota errors and retry without model specification
+    // Provide helpful guidance for common errors
     if (error.toString().includes('429') || error.toString().includes('Quota exceeded')) {
-      console.log(chalk.yellow('\n⚠️  Quota exceeded. Retrying with auto-model selection...\n'));
-      
-      try {
-        // Retry without specifying model - let gemini CLI handle it
-        const fallbackResult = await runGeminiWithTimeout(
-          geminiPath,
-          convertedQuery,
-          '', // No model specified - gemini will auto-select
-          timeout,
-          (elapsed: number) => {
-            if (elapsed === -1) {
-              console.log(chalk.green('\n▶ Streaming Gemini response (auto-selected model):\n'));
-            }
-          },
-          options
-        );
-        
-        if (options.format !== false) {
-          console.log(chalk.cyan('\n' + '═'.repeat(80)));
-          console.log(chalk.green('\n✅ Analysis complete!\n'));
-          console.log(chalk.yellow('Results have been streamed above. I can now see and use them.'));
-        } else {
-          console.log(fallbackResult);
-        }
-        
-        return; // Success with fallback
-      } catch (fallbackError) {
-        // Fallback also failed
-        console.error(chalk.red('\nAuto-fallback failed. Manual options:'));
-        console.error(chalk.cyan('1. Use gemini directly:'));
-        console.error(chalk.gray(`   gemini -p "${query}"`));
-        console.error(chalk.cyan('2. Set up a Gemini API key:'));
-        console.error(chalk.gray('   https://goo.gle/gemini-cli-docs-auth#gemini-api-key'));
-      }
-    } else {
-      console.error(chalk.red(`Error: ${error}`));
+      console.error(chalk.yellow('\nQuota exceeded. Gemini should have auto-switched models.'));
+      console.error(chalk.cyan('If it didn\'t, try:'));
+      console.error(chalk.gray('1. Set up a Gemini API key for higher quotas'));
+      console.error(chalk.gray('2. Wait for daily quota reset'));
     }
     
     process.exit(1);
@@ -195,12 +164,18 @@ function runGeminiWithTimeout(
       }
       
       // Stream stderr info that might be useful (like model switching)
-      if (options.format !== false && (
-        errorData.includes('Slow response times detected') ||
-        errorData.includes('switching from') ||
-        errorData.includes('gemini-2.5-flash')
-      )) {
-        console.log(chalk.yellow('\n' + errorData.trim() + '\n'));
+      if (options.format !== false) {
+        if (errorData.includes('Slow response times detected') ||
+            errorData.includes('switching from') ||
+            errorData.includes('Automatically switching')) {
+          // Clear any spinner first
+          if (!hasStartedStreaming) {
+            hasStartedStreaming = true;
+            clearInterval(progressInterval);
+            onProgress(-1);
+          }
+          console.log(chalk.yellow('\n⚡ ' + errorData.trim() + '\n'));
+        }
       }
     });
 

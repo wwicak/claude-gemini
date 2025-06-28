@@ -47,7 +47,7 @@ export async function config(options: ConfigOptions) {
   console.log('');
   console.log('Available keys:');
   console.log('  timeout     - Analysis timeout in seconds (default: 300)');
-  console.log('  model       - Gemini model to use (default: gemini-2.5-flash)');
+  console.log('  model       - Gemini model to use (default: auto-select)');
   console.log('  ripgrep     - Use ripgrep pre-filtering (default: true)');
   console.log('  format      - Format output for Claude (default: true)');
 }

@@ -25,7 +25,7 @@ program
   .argument('<query>', 'Query with @paths and prompt')
   .option('-r, --ripgrep', 'Use ripgrep for pre-filtering')
   .option('-t, --timeout <seconds>', 'Timeout in seconds', '300')
-  .option('-m, --model <model>', 'Gemini model to use', 'gemini-2.5-flash')
+  .option('-m, --model <model>', 'Gemini model to use (empty = auto-select)')
   .option('--no-format', 'Return raw output without formatting')
   .action(sync);
 
@@ -68,7 +68,7 @@ program
   .argument('[query]', 'Direct query (shorthand for sync)')
   .action((query) => {
     if (query) {
-      sync(query, { ripgrep: false, timeout: '300', model: 'gemini-2.5-flash', format: true });
+      sync(query, { ripgrep: false, timeout: '300', model: '', format: true });
     } else {
       program.help();
     }

@@ -71,7 +71,7 @@ cg "@src/ Find all WebSocket implementations"  # Short form
 Options:
 - `-r, --ripgrep` - Use ripgrep for pre-filtering
 - `-t, --timeout <seconds>` - Analysis timeout (default: 300)
-- `-m, --model <model>` - Gemini model (default: gemini-2.5-flash)
+- `-m, --model <model>` - Gemini model (empty = auto-select, starts with Pro)
 - `--no-format` - Return raw output
 
 ### `init`

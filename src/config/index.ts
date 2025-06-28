@@ -13,7 +13,7 @@ export interface Config {
 
 const DEFAULT_CONFIG: Config = {
   timeout: 300,
-  model: 'gemini-2.5-flash',
+  model: '', // Empty means let Gemini CLI decide (starts with pro, auto-fallback to flash)
   ripgrep: true,
   format: true,
   watchPatterns: ['*.ts', '*.tsx', '*.js', '*.jsx']
