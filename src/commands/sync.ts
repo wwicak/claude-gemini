@@ -40,7 +40,7 @@ export async function sync(query: string, options: SyncOptions) {
   }).start();
 
   const startTime = Date.now();
-  const timeout = parseInt(options.timeout || config.timeout.toString() || '300') * 1000;
+  const timeout = parseInt(options.timeout || config.timeout.toString() || '60') * 1000;
 
   try {
     const result = await runGeminiWithTimeout(
@@ -80,8 +80,12 @@ function runGeminiWithTimeout(
     const args = ['-y', '-m', model, '-p', query];
     const gemini = spawn(geminiPath, args, {
       env: { ...process.env },
-      shell: false
+      shell: false,
+      stdio: ['pipe', 'pipe', 'pipe']
     });
+    
+    // Close stdin immediately since we're not sending any input
+    gemini.stdin.end();
 
     let output = '';
     let error = '';
@@ -105,7 +109,13 @@ function runGeminiWithTimeout(
     });
 
     gemini.stderr.on('data', (data) => {
-      error += data.toString();
+      const errorData = data.toString();
+      error += errorData;
+      // Gemini might output some info to stderr that's not errors
+      if (errorData.includes('[dotenv@')) {
+        // This is just dotenv info, not an error
+        return;
+      }
     });
 
     gemini.on('close', (code) => {
