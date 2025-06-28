@@ -73,14 +73,42 @@ export async function sync(query: string, options: SyncOptions) {
   } catch (error: any) {
     spinner.fail(chalk.red('Analysis failed'));
     
-    // Check for quota errors
+    // Check for quota errors and retry without model specification
     if (error.toString().includes('429') || error.toString().includes('Quota exceeded')) {
-      console.error(chalk.yellow('\n⚠️  Gemini quota exceeded. Options:'));
-      console.error(chalk.cyan('1. Wait for daily quota reset'));
-      console.error(chalk.cyan('2. Use gemini directly (it auto-switches to gemini-2.5-flash):'));
-      console.error(chalk.gray(`   gemini -p "${query}"`));
-      console.error(chalk.cyan('3. Set up a Gemini API key:'));
-      console.error(chalk.gray('   https://goo.gle/gemini-cli-docs-auth#gemini-api-key'));
+      console.log(chalk.yellow('\n⚠️  Quota exceeded. Retrying with auto-model selection...\n'));
+      
+      try {
+        // Retry without specifying model - let gemini CLI handle it
+        const fallbackResult = await runGeminiWithTimeout(
+          geminiPath,
+          convertedQuery,
+          '', // No model specified - gemini will auto-select
+          timeout,
+          (elapsed: number) => {
+            if (elapsed === -1) {
+              console.log(chalk.green('\n▶ Streaming Gemini response (auto-selected model):\n'));
+            }
+          },
+          options
+        );
+        
+        if (options.format !== false) {
+          console.log(chalk.cyan('\n' + '═'.repeat(80)));
+          console.log(chalk.green('\n✅ Analysis complete!\n'));
+          console.log(chalk.yellow('Results have been streamed above. I can now see and use them.'));
+        } else {
+          console.log(fallbackResult);
+        }
+        
+        return; // Success with fallback
+      } catch (fallbackError) {
+        // Fallback also failed
+        console.error(chalk.red('\nAuto-fallback failed. Manual options:'));
+        console.error(chalk.cyan('1. Use gemini directly:'));
+        console.error(chalk.gray(`   gemini -p "${query}"`));
+        console.error(chalk.cyan('2. Set up a Gemini API key:'));
+        console.error(chalk.gray('   https://goo.gle/gemini-cli-docs-auth#gemini-api-key'));
+      }
     } else {
       console.error(chalk.red(`Error: ${error}`));
     }
@@ -99,7 +127,15 @@ function runGeminiWithTimeout(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     // Add -y flag to accept all actions automatically (non-interactive)
-    const args = ['-y', '-m', model, '-p', query];
+    const args = ['-y'];
+    
+    // Only add model if specified (empty string means let gemini auto-select)
+    if (model) {
+      args.push('-m', model);
+    }
+    
+    args.push('-p', query);
+    
     const gemini = spawn(geminiPath, args, {
       env: { ...process.env },
       shell: false,
