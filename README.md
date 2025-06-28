@@ -11,6 +11,7 @@ A robust, global CLI tool for seamless integration between Claude and Gemini acr
 - ⚙️ **Project Configuration** - Customize settings per project
 - 📝 **Auto-injection** - Automatically updates CLAUDE.md files
 - 👀 **Watch Mode** - Monitor file changes and auto-analyze
+- 🔄 **Automatic Model Fallback** - Seamlessly handles quota limits
 
 ## Installation
 
@@ -73,6 +74,12 @@ Options:
 - `-t, --timeout <seconds>` - Analysis timeout (default: 300)
 - `-m, --model <model>` - Gemini model (empty = auto-select, starts with Pro)
 - `--no-format` - Return raw output
+
+The tool automatically handles model fallback when quota limits are reached:
+1. Your specified model (or Gemini's auto-selection)
+2. gemini-2.0-flash-exp
+3. gemini-1.5-flash
+4. gemini-1.5-flash-8b
 
 ### `init`
 Initialize Claude-Gemini in current project.
@@ -184,20 +191,20 @@ source ~/.nvm/nvm.sh
 ```
 
 ### Quota exceeded (429 error)
-When you hit Gemini Pro quota limits:
+The tool now automatically handles quota limits by falling back to alternative models. If all models fail:
 
-1. **Use gemini CLI directly** (it auto-switches to flash model):
-   ```bash
-   gemini -p "@src/ Find all API endpoints"
-   ```
-
-2. **Set up a Gemini API key** for higher quotas:
+1. **Set up a Gemini API key** for higher quotas:
    ```bash
    # Get key from: https://makersuite.google.com/app/apikey
    export GEMINI_API_KEY=your-key-here
    ```
 
-3. **Wait for quota reset** (usually daily)
+2. **Wait for quota reset** (usually daily)
+
+3. **Enable debug mode** to see what's happening:
+   ```bash
+   CG_DEBUG=1 cg "@src/ Find all API endpoints"
+   ```
 
 ### Timeout issues
 ```bash
