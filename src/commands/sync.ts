@@ -46,7 +46,7 @@ export async function sync(query: string, options: SyncOptions) {
     const result = await runGeminiWithTimeout(
       geminiPath,
       convertedQuery,
-      options.model || config.model || 'gemini-2.0-flash-exp',
+      options.model || config.model || 'gemini-2.5-pro',
       timeout,
       (elapsed: number) => {
         const progress = Math.floor((elapsed / timeout) * 100);
@@ -76,7 +76,8 @@ function runGeminiWithTimeout(
   onProgress: (elapsed: number) => void
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const args = ['-m', model, '-p', query];
+    // Add -y flag to accept all actions automatically (non-interactive)
+    const args = ['-y', '-m', model, '-p', query];
     const gemini = spawn(geminiPath, args, {
       env: { ...process.env },
       shell: false

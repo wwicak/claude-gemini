@@ -1,0 +1,12 @@
+src/
+*.ts
+tsconfig.json
+scripts/
+homebrew/
+SETUP.md
+install.sh
+install-oneliner.sh
+.git/
+.gitignore
+*.log
+.DS_Store
