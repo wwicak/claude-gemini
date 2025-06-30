@@ -38,7 +38,7 @@ program
       timeout: options.timeout,
       model: options.model,
       format: options.format,
-      useCode2prompt: !options.code2prompt, // Inverted: code2prompt is default, disable with --no-code2prompt
+      useCode2prompt: options.code2prompt !== false, // code2prompt is default, disabled only with --no-code2prompt
       includePatterns: options.include || [],
       excludePatterns: options.exclude || [],
       lineNumbers: options.lineNumbers,

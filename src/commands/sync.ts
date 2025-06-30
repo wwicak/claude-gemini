@@ -48,6 +48,12 @@ export async function sync(query: string, options: SyncOptions) {
   let tempPromptFile: string | null = null;
   let usedCode2Prompt = false;
   
+  // Debug logging
+  if (process.env.DEBUG || process.env.CG_DEBUG) {
+    console.log(chalk.gray(`[DEBUG] options.useCode2prompt: ${options.useCode2prompt}`));
+    console.log(chalk.gray(`[DEBUG] hasCodebaseContent: ${await hasCodebaseContent(query)}`));
+  }
+  
   if (options.useCode2prompt && await hasCodebaseContent(query)) {
     try {
       const code2promptResult = await processWithCode2Prompt(query, options);
@@ -280,9 +286,9 @@ async function processWithCode2Prompt(
     ],
     lineNumbers: options.lineNumbers || false,
     template: options.template,
-    json: true,
+    outputFormat: 'json' as const,
     tokens: true,
-    excludeFromTree: true
+    encoding: 'cl100k'
   };
   
   // If specific files are mentioned, include them

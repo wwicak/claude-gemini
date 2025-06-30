@@ -1,6 +1,6 @@
 {
   "name": "claude-gemini",
-  "version": "1.3.5",
+  "version": "1.3.6",
   "description": "Global CLI tool for Claude-Gemini integration across projects",
   "main": "dist/index.js",
   "bin": {

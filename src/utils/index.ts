@@ -151,11 +151,13 @@ export interface Code2PromptOptions {
   exclude?: string[];
   template?: string;
   lineNumbers?: boolean;
-  json?: boolean;
-  tokens?: boolean;
+  outputFormat?: 'markdown' | 'json' | 'xml';
+  tokens?: boolean | string;
   outputFile?: string;
-  excludeFromTree?: boolean;
-  relativeFiles?: boolean;
+  encoding?: string;
+  diff?: boolean;
+  absolutePaths?: boolean;
+  noCodeblock?: boolean;
 }
 
 export async function runCode2Prompt(
@@ -173,31 +175,41 @@ export async function runCode2Prompt(
     
     // Add options
     if (options.include?.length) {
-      args.push('--include', options.include.join(','));
+      for (const pattern of options.include) {
+        args.push('-i', pattern);
+      }
     }
     if (options.exclude?.length) {
-      args.push('--exclude', options.exclude.join(','));
+      for (const pattern of options.exclude) {
+        args.push('-e', pattern);
+      }
     }
     if (options.template) {
       args.push('-t', options.template);
     }
     if (options.lineNumbers) {
-      args.push('--line-number');
+      args.push('-l');
     }
-    if (options.json) {
-      args.push('--json');
+    if (options.outputFormat) {
+      args.push('-F', options.outputFormat);
     }
     if (options.tokens) {
-      args.push('--tokens');
+      args.push('--tokens', typeof options.tokens === 'string' ? options.tokens : 'format');
     }
     if (options.outputFile) {
-      args.push('--output', options.outputFile);
+      args.push('-O', options.outputFile);
     }
-    if (options.excludeFromTree) {
-      args.push('--exclude-from-tree');
+    if (options.encoding) {
+      args.push('-c', options.encoding);
     }
-    if (options.relativeFiles) {
-      args.push('--relative-paths');
+    if (options.diff) {
+      args.push('-d');
+    }
+    if (options.absolutePaths) {
+      args.push('--absolute-paths');
+    }
+    if (options.noCodeblock) {
+      args.push('--no-codeblock');
     }
 
     const childProcess = spawn(code2promptPath, args, {
@@ -219,7 +231,7 @@ export async function runCode2Prompt(
     childProcess.on('close', (code: number | null) => {
       if (code === 0) {
         // Parse JSON output if requested
-        if (options.json) {
+        if (options.outputFormat === 'json') {
           try {
             const result = JSON.parse(stdout);
             resolve({
@@ -230,7 +242,15 @@ export async function runCode2Prompt(
             resolve({ output: stdout });
           }
         } else {
-          resolve({ output: stdout });
+          // Extract token count from stdout if tokens were requested
+          let tokenCount: number | undefined;
+          if (options.tokens) {
+            const tokenMatch = stdout.match(/Token count: (\d+)/);
+            if (tokenMatch) {
+              tokenCount = parseInt(tokenMatch[1], 10);
+            }
+          }
+          resolve({ output: stdout, tokenCount });
         }
       } else {
         reject(new Error(`code2prompt failed with code ${code}: ${stderr}`));
