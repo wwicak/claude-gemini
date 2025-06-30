@@ -1,6 +1,6 @@
 {
   "name": "claude-gemini",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Global CLI tool for Claude-Gemini integration across projects",
   "main": "dist/index.js",
   "bin": {
@@ -32,19 +32,18 @@
   "homepage": "https://github.com/wwicak/claude-gemini#readme",
   "dependencies": {
     "chalk": "^5.3.0",
-    "chokidar": "^3.5.3",
-    "claude-gemini": "^1.3.2",
     "commander": "^11.1.0",
-    "dotenv": "^16.3.1",
-    "fs-extra": "^11.2.0",
     "ora": "^7.0.1",
+    "dotenv": "^16.3.1",
     "which": "^4.0.0",
-    "yaml": "^2.3.4"
+    "fs-extra": "^11.2.0",
+    "yaml": "^2.3.4",
+    "chokidar": "^3.5.3"
   },
   "devDependencies": {
-    "@types/fs-extra": "^11.0.4",
     "@types/node": "^20.10.0",
     "@types/which": "^3.0.3",
+    "@types/fs-extra": "^11.0.4",
     "typescript": "^5.3.3"
   },
   "engines": {

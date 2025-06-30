@@ -27,7 +27,24 @@ program
   .option('-t, --timeout <seconds>', 'Timeout in seconds', '300')
   .option('-m, --model <model>', 'Gemini model to use (empty = auto-select)')
   .option('--no-format', 'Return raw output without formatting')
-  .action(sync);
+  .option('--no-code2prompt', 'Disable code2prompt and use legacy path processing')
+  .option('--include <patterns>', 'Include file patterns (comma-separated)', (value) => value.split(','))
+  .option('--exclude <patterns>', 'Exclude file patterns (comma-separated)', (value) => value.split(','))
+  .option('--line-numbers', 'Add line numbers to code blocks')
+  .option('--template <file>', 'Use custom code2prompt template')
+  .action((query, options) => {
+    sync(query, {
+      ripgrep: options.ripgrep,
+      timeout: options.timeout,
+      model: options.model,
+      format: options.format,
+      useCode2prompt: !options.code2prompt, // Inverted: code2prompt is default, disable with --no-code2prompt
+      includePatterns: options.include || [],
+      excludePatterns: options.exclude || [],
+      lineNumbers: options.lineNumbers,
+      template: options.template
+    });
+  });
 
 // Watch command
 program
@@ -68,7 +85,16 @@ program
   .argument('[query]', 'Direct query (shorthand for sync)')
   .action((query) => {
     if (query) {
-      sync(query, { ripgrep: false, timeout: '300', model: '', format: true });
+      sync(query, { 
+        ripgrep: false, 
+        timeout: '300', 
+        model: '', 
+        format: true,
+        useCode2prompt: true, // Default to true for global command
+        includePatterns: [],
+        excludePatterns: [],
+        lineNumbers: false
+      });
     } else {
       program.help();
     }

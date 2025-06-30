@@ -200,7 +200,7 @@ export async function runCode2Prompt(
       args.push('--relative-paths');
     }
 
-    const process = spawn(code2promptPath, args, {
+    const childProcess = spawn(code2promptPath, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env }
     });
@@ -208,15 +208,15 @@ export async function runCode2Prompt(
     let stdout = '';
     let stderr = '';
 
-    process.stdout.on('data', (data) => {
+    childProcess.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
     });
 
-    process.stderr.on('data', (data) => {
+    childProcess.stderr?.on('data', (data: Buffer) => {
       stderr += data.toString();
     });
 
-    process.on('close', (code) => {
+    childProcess.on('close', (code: number | null) => {
       if (code === 0) {
         // Parse JSON output if requested
         if (options.json) {
@@ -237,7 +237,7 @@ export async function runCode2Prompt(
       }
     });
 
-    process.on('error', (err) => {
+    childProcess.on('error', (err: Error) => {
       reject(err);
     });
   });

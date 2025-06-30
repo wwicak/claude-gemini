@@ -43,16 +43,17 @@ export async function sync(query: string, options: SyncOptions) {
     process.exit(1);
   }
   
-  // Check if code2prompt should be used for codebase analysis
-  const shouldUseCode2Prompt = options.useCode2prompt || await shouldAutoUseCode2Prompt(query);
+  // Attempt to use code2prompt for codebase analysis by default
   let processedQuery = query;
   let tempPromptFile: string | null = null;
+  let usedCode2Prompt = false;
   
-  if (shouldUseCode2Prompt) {
+  if (options.useCode2prompt && await hasCodebaseContent(query)) {
     try {
       const code2promptResult = await processWithCode2Prompt(query, options);
       processedQuery = code2promptResult.processedQuery;
       tempPromptFile = code2promptResult.tempFile;
+      usedCode2Prompt = true;
       
       if (options.format !== false) {
         console.log(chalk.cyan('🔄 Using code2prompt for enhanced codebase analysis...'));
@@ -65,11 +66,12 @@ export async function sync(query: string, options: SyncOptions) {
         console.warn(chalk.yellow(`⚠️  code2prompt unavailable: ${error.message}`));
         console.warn(chalk.gray('Falling back to standard path processing...'));
       }
+      // Fall through to legacy processing
     }
   }
 
   // Convert relative paths to absolute (only if not using code2prompt)
-  const convertedQuery = shouldUseCode2Prompt ? processedQuery : convertPaths(query, process.cwd());
+  const convertedQuery = usedCode2Prompt ? processedQuery : convertPaths(query, process.cwd());
   
   // Validate the converted query
   if (!convertedQuery) {
@@ -215,30 +217,33 @@ export async function sync(query: string, options: SyncOptions) {
     process.exit(1);
 }
 
-async function shouldAutoUseCode2Prompt(query: string): Promise<boolean> {
-  // Auto-detect if query contains multiple @paths or large directories
+async function hasCodebaseContent(query: string): Promise<boolean> {
+  // Check if the query contains any @path references or file/directory indicators
   const { paths } = extractPathsFromQuery(query);
   
-  if (paths.length === 0) return false;
+  // Always try code2prompt if there are any paths mentioned
+  if (paths.length > 0) {
+    // Check if code2prompt is available
+    const code2promptPath = await findCode2PromptPath();
+    return code2promptPath !== null;
+  }
   
-  // Check if code2prompt is available
-  const code2promptPath = await findCode2PromptPath();
-  if (!code2promptPath) return false;
-  
-  // Use code2prompt if:
-  // 1. Multiple paths specified
-  // 2. Any path is a directory with many files
-  // 3. Large codebase analysis keywords
-  if (paths.length > 2) return true;
-  
+  // Also use code2prompt for codebase analysis keywords even without explicit paths
   const analysisKeywords = [
-    'analyze', 'architecture', 'structure', 'codebase', 'project',
-    'patterns', 'security', 'audit', 'review', 'overview', 'summary'
+    'analyze', 'architecture', 'structure', 'codebase', 'project', 'code',
+    'patterns', 'security', 'audit', 'review', 'overview', 'summary', 'files'
   ];
   
-  return analysisKeywords.some(keyword => 
+  const hasAnalysisKeywords = analysisKeywords.some(keyword => 
     query.toLowerCase().includes(keyword)
   );
+  
+  if (hasAnalysisKeywords) {
+    const code2promptPath = await findCode2PromptPath();
+    return code2promptPath !== null;
+  }
+  
+  return false;
 }
 
 async function processWithCode2Prompt(
@@ -247,17 +252,19 @@ async function processWithCode2Prompt(
 ): Promise<{ processedQuery: string; tempFile: string | null; tokenCount?: number }> {
   const { paths, cleanQuery } = extractPathsFromQuery(query);
   
+  // If no explicit paths, use current directory for codebase analysis
+  let targetPaths = paths;
   if (paths.length === 0) {
-    return { processedQuery: query, tempFile: null };
+    targetPaths = ['.'];
   }
   
   // Find the primary path (first directory or current dir if only files)
   let primaryPath = process.cwd();
-  const dirPaths = paths.filter(p => p.endsWith('/') || !p.includes('.'));
+  const dirPaths = targetPaths.filter(p => p.endsWith('/') || !p.includes('.'));
   if (dirPaths.length > 0) {
     primaryPath = path.resolve(dirPaths[0]);
-  } else if (paths.length > 0) {
-    primaryPath = path.dirname(path.resolve(paths[0]));
+  } else if (targetPaths.length > 0 && targetPaths[0] !== '.') {
+    primaryPath = path.dirname(path.resolve(targetPaths[0]));
   }
   
   // Configure code2prompt options
@@ -279,8 +286,8 @@ async function processWithCode2Prompt(
   };
   
   // If specific files are mentioned, include them
-  const fileIncludes = paths
-    .filter(p => p.includes('.') && !p.endsWith('/'))
+  const fileIncludes = targetPaths
+    .filter(p => p.includes('.') && !p.endsWith('/') && p !== '.')
     .map(p => path.basename(p))
     .filter(f => f.length > 0);
   
