@@ -36,6 +36,22 @@ export async function findGeminiPath(): Promise<string | null> {
   }
 }
 
+// Common directories/files that should be excluded from analysis
+const EXCLUDED_PATTERNS = [
+  'node_modules', 'dist', 'build', 'out', 'target', 'vendor', 'pkg',
+  '.git', '.svn', '.hg', 'venv', '.venv', 'env', '.cache', 'cache',
+  'coverage', '.nyc_output', 'logs', 'tmp', 'temp', '.tmp'
+];
+
+function shouldExcludePath(pathStr: string): boolean {
+  const normalizedPath = pathStr.toLowerCase();
+  return EXCLUDED_PATTERNS.some(pattern => 
+    normalizedPath.includes(pattern) || 
+    normalizedPath.endsWith(`/${pattern}`) ||
+    normalizedPath === pattern
+  );
+}
+
 export function convertPaths(query: string, baseDir: string): string {
   // Handle edge cases
   if (!query || typeof query !== 'string') {
@@ -51,6 +67,13 @@ export function convertPaths(query: string, baseDir: string): string {
     if (dir.includes(' ') || dir.length > 100) {
       return match;
     }
+    
+    // Skip excluded directories
+    if (shouldExcludePath(dir)) {
+      console.warn(`Skipping excluded directory: ${dir}`);
+      return ''; // Remove from query
+    }
+    
     return `@${path.join(baseDir, dir)}/`;
   });
   
@@ -60,6 +83,13 @@ export function convertPaths(query: string, baseDir: string): string {
     if (file.includes(' ') || file.length > 100) {
       return match;
     }
+    
+    // Skip excluded files
+    if (shouldExcludePath(file)) {
+      console.warn(`Skipping excluded file: ${file}`);
+      return ''; // Remove from query
+    }
+    
     return `@${path.join(baseDir, file)}`;
   });
   

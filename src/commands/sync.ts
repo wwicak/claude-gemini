@@ -8,9 +8,7 @@ import {
   validatePaths, 
   findCode2PromptPath,
   runCode2Prompt,
-  extractPathsFromQuery,
-  createTempPromptFile,
-  cleanupTempFile
+  extractPathsFromQuery
 } from '../utils';
 import { loadConfig } from '../config';
 import path from 'path';
@@ -82,7 +80,6 @@ export async function sync(query: string, options: SyncOptions) {
   // Validate the converted query
   if (!convertedQuery) {
     console.error(chalk.red('Error: Failed to process the query. Please check your input.'));
-    if (tempPromptFile) cleanupTempFile(tempPromptFile);
     process.exit(1);
   }
   
@@ -112,10 +109,10 @@ export async function sync(query: string, options: SyncOptions) {
   const startTime = Date.now();
   const timeout = parseInt(options.timeout || config.timeout.toString() || '60') * 1000;
   
-  // Model fallback chain
+  // Model fallback chain - prioritize Flash models to avoid quota issues
   const modelFallbackChain = [
-    options.model || config.model || '',  // User specified or empty (let Gemini decide)
-    'gemini-2.5-flash',                   // New frontier flash model
+    options.model || config.model || 'gemini-2.5-flash', // Default to 2.5-flash or user specified
+    'gemini-2.5-flash',                   // New frontier flash model (primary)
     'gemini-2.0-flash-exp',               // Fast experimental model
     'gemini-1.5-flash',                   // Stable flash model
     'gemini-1.5-flash-8b'                 // Lightweight model
@@ -159,11 +156,6 @@ export async function sync(query: string, options: SyncOptions) {
         console.log(chalk.cyan('\n' + '═'.repeat(80)));
         console.log(chalk.green('\n✅ Analysis complete!\n'));
         console.log(chalk.yellow('Results have been streamed above. I can now see and use them.'));
-        
-        // Cleanup temp files
-        if (tempPromptFile) {
-          cleanupTempFile(tempPromptFile);
-        }
       } else {
         // For non-formatted output, just print the result
         console.log(result);
@@ -213,11 +205,6 @@ export async function sync(query: string, options: SyncOptions) {
       console.error(chalk.gray('1. Try running gemini directly: gemini -p "test"'));
       console.error(chalk.gray('2. Check if you\'re logged in: gemini auth status'));
       console.error(chalk.gray('3. Enable debug mode: CG_DEBUG=1 cg "@package.json test"'));
-    }
-    
-    // Cleanup temp files on error
-    if (tempPromptFile) {
-      cleanupTempFile(tempPromptFile);
     }
     
     process.exit(1);
@@ -273,17 +260,88 @@ async function processWithCode2Prompt(
     primaryPath = path.dirname(path.resolve(targetPaths[0]));
   }
   
-  // Configure code2prompt options
+  // Configure code2prompt options with comprehensive exclusions
+  const defaultExclusions = [
+    // Dependencies and package managers
+    'node_modules/**',
+    'venv/**',
+    'env/**',
+    '.venv/**',
+    'vendor/**',
+    'target/**',
+    'pkg/**',
+    'packages/**',
+    
+    // Build outputs and distributions
+    'dist/**',
+    'build/**',
+    'out/**',
+    'bin/**',
+    'lib/**',
+    'release/**',
+    '.next/**',
+    '.nuxt/**',
+    '_site/**',
+    'public/assets/**',
+    
+    // IDE and editor files
+    '.vscode/**',
+    '.idea/**',
+    '*.swp',
+    '*.swo',
+    '*~',
+    '.DS_Store',
+    'Thumbs.db',
+    
+    // Version control
+    '.git/**',
+    '.svn/**',
+    '.hg/**',
+    
+    // Logs and temporary files
+    '*.log',
+    'logs/**',
+    'tmp/**',
+    'temp/**',
+    '.tmp/**',
+    
+    // Environment and config files with secrets
+    '.env*',
+    '.secret*',
+    'config/secrets/**',
+    
+    // Cache directories
+    '.cache/**',
+    'cache/**',
+    '.parcel-cache/**',
+    '.webpack/**',
+    '.rollup.cache/**',
+    
+    // Test coverage and reports
+    'coverage/**',
+    '.nyc_output/**',
+    'test-results/**',
+    
+    // Documentation build outputs
+    '_book/**',
+    'docs/_build/**',
+    'site/**',
+    
+    // Language specific
+    '*.pyc',
+    '__pycache__/**',
+    '.pytest_cache/**',
+    'Cargo.lock',
+    'package-lock.json',
+    'yarn.lock',
+    'pnpm-lock.yaml',
+    'composer.lock',
+    'Gemfile.lock'
+  ];
+
   const code2promptOptions = {
     include: options.includePatterns || [],
-    exclude: options.excludePatterns || [
-      'node_modules/**',
-      '.git/**',
-      'dist/**',
-      'build/**',
-      '*.log',
-      '.env*'
-    ],
+    exclude: options.excludePatterns || defaultExclusions,
     lineNumbers: options.lineNumbers || false,
     template: options.template,
     outputFormat: 'json' as const,
@@ -304,16 +362,75 @@ async function processWithCode2Prompt(
   // Run code2prompt
   const result = await runCode2Prompt(primaryPath, code2promptOptions);
   
-  // Create a comprehensive prompt
+  // Check if the result is too large for Gemini API
+  const maxTokens = 15000; // Conservative limit to avoid API errors
+  if (result.tokenCount && result.tokenCount > maxTokens) {
+    // Try with more aggressive exclusions
+    const aggressiveOptions = {
+      ...code2promptOptions,
+      exclude: [
+        ...code2promptOptions.exclude,
+        // Add more aggressive exclusions
+        '*.min.js',
+        '*.min.css',
+        '*.bundle.js',
+        '*.chunk.js',
+        'static/**',
+        'assets/**',
+        'public/**',
+        'docs/**',
+        'examples/**',
+        'test/**',
+        'tests/**',
+        '__tests__/**',
+        'spec/**',
+        '*.spec.ts',
+        '*.spec.js',
+        '*.test.ts',
+        '*.test.js',
+        '*.d.ts',
+        'types/**',
+        '@types/**'
+      ]
+    };
+    
+    if (options.format !== false) {
+      console.warn(chalk.yellow(`⚠️  Large codebase detected (${result.tokenCount} tokens). Trying more aggressive filtering...`));
+    }
+    
+    const filteredResult = await runCode2Prompt(primaryPath, aggressiveOptions);
+    
+    // If still too large, limit the content
+    if (filteredResult.tokenCount && filteredResult.tokenCount > maxTokens) {
+      const truncatedOutput = filteredResult.output.substring(0, Math.floor(maxTokens * 4)); // Rough chars-to-tokens conversion
+      const enhancedPrompt = `${cleanQuery}\n\n# Codebase Context (Truncated)\n\n${truncatedOutput}\n\n[Note: Output truncated due to size limits. Use specific file paths for detailed analysis.]`;
+      
+      if (options.format !== false) {
+        console.warn(chalk.yellow(`⚠️  Content truncated to fit API limits (${Math.floor(maxTokens)} tokens approx.)`));
+      }
+      
+      return {
+        processedQuery: enhancedPrompt,
+        tempFile: null,
+        tokenCount: maxTokens
+      };
+    }
+    
+    const enhancedPrompt = `${cleanQuery}\n\n# Codebase Context\n\n${filteredResult.output}`;
+    return {
+      processedQuery: enhancedPrompt,
+      tempFile: null,
+      tokenCount: filteredResult.tokenCount
+    };
+  }
+  
+  // Create a comprehensive prompt and pass it directly
   const enhancedPrompt = `${cleanQuery}\n\n# Codebase Context\n\n${result.output}`;
   
-  // Save to temp file for gemini
-  const tempFile = createTempPromptFile(enhancedPrompt);
-  
-  // Return the file path as the query (gemini can read files with @)
+  // Return the enhanced prompt directly instead of using a temp file
   return {
-    processedQuery: `@${tempFile} ${cleanQuery}`,
-    tempFile,
+    processedQuery: enhancedPrompt,
+    tempFile: null, // No temp file needed
     tokenCount: result.tokenCount
   };
 }
