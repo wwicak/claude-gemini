@@ -1,27 +1,92 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import { spawn } from 'child_process';
-import { findGeminiPath, convertPaths, formatForClaude } from '../utils';
+import { 
+  findGeminiPath, 
+  convertPaths, 
+  formatForClaude, 
+  validatePaths, 
+  findCode2PromptPath,
+  runCode2Prompt,
+  extractPathsFromQuery,
+  createTempPromptFile,
+  cleanupTempFile
+} from '../utils';
 import { loadConfig } from '../config';
+import path from 'path';
 
 interface SyncOptions {
   ripgrep?: boolean;
   timeout?: string;
   model?: string;
   format?: boolean;
+  useCode2prompt?: boolean;
+  includePatterns?: string[];
+  excludePatterns?: string[];
+  lineNumbers?: boolean;
+  template?: string;
 }
 
 export async function sync(query: string, options: SyncOptions) {
+  // Validate input
+  if (!query || typeof query !== 'string') {
+    console.error(chalk.red('Error: Invalid query provided. Please provide a valid query string.'));
+    process.exit(1);
+  }
+  
   const config = await loadConfig();
   const geminiPath = await findGeminiPath();
   
   if (!geminiPath) {
     console.error(chalk.red('Error: Gemini CLI not found. Please ensure it is installed.'));
+    console.error(chalk.yellow('\nInstall with: npm install -g gemini'));
     process.exit(1);
   }
+  
+  // Check if code2prompt should be used for codebase analysis
+  const shouldUseCode2Prompt = options.useCode2prompt || await shouldAutoUseCode2Prompt(query);
+  let processedQuery = query;
+  let tempPromptFile: string | null = null;
+  
+  if (shouldUseCode2Prompt) {
+    try {
+      const code2promptResult = await processWithCode2Prompt(query, options);
+      processedQuery = code2promptResult.processedQuery;
+      tempPromptFile = code2promptResult.tempFile;
+      
+      if (options.format !== false) {
+        console.log(chalk.cyan('🔄 Using code2prompt for enhanced codebase analysis...'));
+        if (code2promptResult.tokenCount) {
+          console.log(chalk.gray(`📊 Code context: ${code2promptResult.tokenCount} tokens`));
+        }
+      }
+    } catch (error: any) {
+      if (options.format !== false) {
+        console.warn(chalk.yellow(`⚠️  code2prompt unavailable: ${error.message}`));
+        console.warn(chalk.gray('Falling back to standard path processing...'));
+      }
+    }
+  }
 
-  // Convert relative paths to absolute
-  const convertedQuery = convertPaths(query, process.cwd());
+  // Convert relative paths to absolute (only if not using code2prompt)
+  const convertedQuery = shouldUseCode2Prompt ? processedQuery : convertPaths(query, process.cwd());
+  
+  // Validate the converted query
+  if (!convertedQuery) {
+    console.error(chalk.red('Error: Failed to process the query. Please check your input.'));
+    if (tempPromptFile) cleanupTempFile(tempPromptFile);
+    process.exit(1);
+  }
+  
+  // Validate paths exist (but only warn, don't block)
+  const pathValidation = validatePaths(convertedQuery);
+  if (!pathValidation.valid && pathValidation.warnings.length > 0) {
+    console.warn(chalk.yellow('\n⚠️  Path warnings:'));
+    pathValidation.warnings.forEach(warning => {
+      console.warn(chalk.gray(`   - ${warning}`));
+    });
+    console.warn(chalk.cyan('\nTip: Use @./ for current directory or check that paths exist with ls\n'));
+  }
   
   // Show Claude instructions
   if (options.format !== false) {
@@ -86,6 +151,11 @@ export async function sync(query: string, options: SyncOptions) {
         console.log(chalk.cyan('\n' + '═'.repeat(80)));
         console.log(chalk.green('\n✅ Analysis complete!\n'));
         console.log(chalk.yellow('Results have been streamed above. I can now see and use them.'));
+        
+        // Cleanup temp files
+        if (tempPromptFile) {
+          cleanupTempFile(tempPromptFile);
+        }
       } else {
         // For non-formatted output, just print the result
         console.log(result);
@@ -116,6 +186,16 @@ export async function sync(query: string, options: SyncOptions) {
       console.error(chalk.cyan('If it didn\'t, try:'));
       console.error(chalk.gray('1. Set up a Gemini API key for higher quotas'));
       console.error(chalk.gray('2. Wait for daily quota reset'));
+    } else if (lastError.toString().includes('400') || lastError.toString().includes('Bad Request') || lastError.toString().includes('invalid argument')) {
+      console.error(chalk.yellow('\nBad Request Error. Common causes:'));
+      console.error(chalk.gray('1. Non-existent file paths (e.g., @app/, @lib/ when these don\'t exist)'));
+      console.error(chalk.gray('2. Incorrectly formatted query'));
+      console.error(chalk.gray('3. Special characters that need escaping'));
+      console.error(chalk.cyan('\nTips:'));
+      console.error(chalk.gray('1. Use @src/ or @./ for the current directory'));
+      console.error(chalk.gray('2. Ensure paths exist: ls -la'));
+      console.error(chalk.gray('3. Try simpler queries first'));
+      console.error(chalk.gray('4. Enable debug: CG_DEBUG=1 cg "your query"'));
     } else if (lastError.toString().includes('Timeout')) {
       console.error(chalk.yellow('\nThe Gemini CLI is not responding. This could be due to:'));
       console.error(chalk.gray('1. Network connectivity issues'));
@@ -127,7 +207,102 @@ export async function sync(query: string, options: SyncOptions) {
       console.error(chalk.gray('3. Enable debug mode: CG_DEBUG=1 cg "@package.json test"'));
     }
     
+    // Cleanup temp files on error
+    if (tempPromptFile) {
+      cleanupTempFile(tempPromptFile);
+    }
+    
     process.exit(1);
+}
+
+async function shouldAutoUseCode2Prompt(query: string): Promise<boolean> {
+  // Auto-detect if query contains multiple @paths or large directories
+  const { paths } = extractPathsFromQuery(query);
+  
+  if (paths.length === 0) return false;
+  
+  // Check if code2prompt is available
+  const code2promptPath = await findCode2PromptPath();
+  if (!code2promptPath) return false;
+  
+  // Use code2prompt if:
+  // 1. Multiple paths specified
+  // 2. Any path is a directory with many files
+  // 3. Large codebase analysis keywords
+  if (paths.length > 2) return true;
+  
+  const analysisKeywords = [
+    'analyze', 'architecture', 'structure', 'codebase', 'project',
+    'patterns', 'security', 'audit', 'review', 'overview', 'summary'
+  ];
+  
+  return analysisKeywords.some(keyword => 
+    query.toLowerCase().includes(keyword)
+  );
+}
+
+async function processWithCode2Prompt(
+  query: string, 
+  options: SyncOptions
+): Promise<{ processedQuery: string; tempFile: string | null; tokenCount?: number }> {
+  const { paths, cleanQuery } = extractPathsFromQuery(query);
+  
+  if (paths.length === 0) {
+    return { processedQuery: query, tempFile: null };
+  }
+  
+  // Find the primary path (first directory or current dir if only files)
+  let primaryPath = process.cwd();
+  const dirPaths = paths.filter(p => p.endsWith('/') || !p.includes('.'));
+  if (dirPaths.length > 0) {
+    primaryPath = path.resolve(dirPaths[0]);
+  } else if (paths.length > 0) {
+    primaryPath = path.dirname(path.resolve(paths[0]));
+  }
+  
+  // Configure code2prompt options
+  const code2promptOptions = {
+    include: options.includePatterns || [],
+    exclude: options.excludePatterns || [
+      'node_modules/**',
+      '.git/**',
+      'dist/**',
+      'build/**',
+      '*.log',
+      '.env*'
+    ],
+    lineNumbers: options.lineNumbers || false,
+    template: options.template,
+    json: true,
+    tokens: true,
+    excludeFromTree: true
+  };
+  
+  // If specific files are mentioned, include them
+  const fileIncludes = paths
+    .filter(p => p.includes('.') && !p.endsWith('/'))
+    .map(p => path.basename(p))
+    .filter(f => f.length > 0);
+  
+  if (fileIncludes.length > 0) {
+    code2promptOptions.include = [...code2promptOptions.include, ...fileIncludes];
+  }
+  
+  // Run code2prompt
+  const result = await runCode2Prompt(primaryPath, code2promptOptions);
+  
+  // Create a comprehensive prompt
+  const enhancedPrompt = `${cleanQuery}\n\n# Codebase Context\n\n${result.output}`;
+  
+  // Save to temp file for gemini
+  const tempFile = createTempPromptFile(enhancedPrompt);
+  
+  // Return the file path as the query (gemini can read files with @)
+  return {
+    processedQuery: `@${tempFile} ${cleanQuery}`,
+    tempFile,
+    tokenCount: result.tokenCount
+  };
 }
 
 function runGeminiWithTimeout(
@@ -264,6 +439,10 @@ function runGeminiWithTimeout(
         const quotaMatch = error.match(/Quota exceeded.*?\./g);
         if (quotaMatch) {
           reject(new Error(`429: ${quotaMatch[0]}`));
+        } else if (error.includes('400') || error.includes('Bad Request') || error.includes('invalid argument')) {
+          // Handle 400 errors specifically
+          const errorMsg = `Invalid request: ${error}\n\nThis often happens when:\n1. File paths don't exist\n2. Query format is incorrect\n3. Special characters aren't properly escaped`;
+          reject(new Error(errorMsg));
         } else {
           reject(new Error(`Gemini exited with code ${code}: ${error}`));
         }
